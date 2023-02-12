@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-	<title>Go Preferences>
+	<title>Go Preferences</title>
 	  <meta charset="UTF-8">
 	  <meta name="viewport" content="width=device-width, initial-scale=1">
 	  <link rel="stylesheet" href="/style.css" />
@@ -32,19 +32,206 @@
 	  </script>
 </head>
 
-
-Blah Blah
-
  <article>
 	<header>
 		<h2>Go Preferences</h2>
 		<time date="2023-02-11">February 2023</time>
 	</header>
+
+<main role="main">
 	
 <p>
-		My stack requires no maintenance, has perfect Lighthouse scores, will never have any security vulnerability, is based on open standards, is portable, has an instant dev loop, has no build step and… will outlive any other stack.
-		</p>
+These are a few tips on how to make Go code more <italic>readable</italic> and robust. Go already has great resources on how to write code, such as <a href="https://go.dev/doc/effective_go">Effective Go</a>, <a href="https://gist.github.com/adamveld12/c0d9f0d5f0e1fba1e551">Go Code Review Comments</a> and <a href="https://dave.cheney.net/practical-go/presentations/gophercon-israel.html">Practical Go</a>, but these are my preferences and observations from writing and reviewing Go code over the last few years. Many of these points are subtle, but I think they enhance the overall readability and maintainability of a code base.</p>
+
+<h3>1. False</h3>
+<p>When checking for false, prefer this:</p>
+
+<pre>
+if myVariableName == false {
+   sendEmail("oh no")
+}
+</pre>
+
+<p>to this:</p>
+
+<pre>
+if !myVariableName {
+   sendEmail("oh no")
+}
+</pre>
+
+<p>The reason is that when scanning through code it's easy to miss the <code>!</code>; typing a few extra characters makes it more readable.</p>
+
+</pre>
+
+<h3>2. Switches</h3>
+<p>When choosing among several possible outcomes, prefer a <code>switch</code> statement to an <code>if</code> statement, like this:
+
+<pre>
+switch {
+case f.IsList():
+  return "it's a list"
+case f.IsMap():
+  return "it's a map"
+default:
+  return "no idea"
+}
+</pre>
+
+<p>... not this:</p>
+
+<pre>
+if f.IsList() {
+  return "it's a list"
+else if f.IsMap() {
+  return "it's a map"
+} else {
+  return "no idea"
+}
+</pre>
+
+<p>The switch statement lays out the options more clearly, and your eye doesn't have to follow the logic of "if/else if/else". The switch statment places everything in a vertical line.</p>
+
+<h3>3. Early exit</h3>
+
+<p>Get negative tests out of the way early in a function, and exit, rather than creating nested if statements. For example, instead of this: </p>
+
+<pre>
+if len(grades) > 0{
+  var sum float64  
+  for _, g := range grades {
+    sum += g
+  }
+  return sum / len(grades)
+}
+</pre>
+
+<p>...do this:</p>
+
+<pre>
+if len(grades) == 0{
+  return 0
+}
+
+var sum float64  
+for _, g := range grades {
+  sum += g
+}
+return sum / len(grades)
+</pre>
+
+<p>This keeps the eye going down in a vertical line, and avoids having to think about the meaning of the nested levels. 
+
+<h3>4. Call a function instead of commenting</h3>
+
+<p>While writing a function, it's common to end up with a few blocks of logic in the middle. They do some kind of processing on the data we received before returning a result. Sometimes an intermediate result is involved, then we do something else to it, etc. If you find yourself starting to write a comment to explain what the block does, refactor it to its own function. The function name should be all the documentation you need. </p>
+
+<p>For example, consider this function that determines if a student is eligible to graduate:
+
+<pre>
+func eligibleForGraduation(s *Student) error {
+
+  var unclearedHolds int 
+  for _, hold := range s.Holds {
+    if hold.Status != cleared {
+      unclearedHolds++
+    }
+  }
+
+  if unclearedHolds > 0 {
+    return fmt.Errorf("student has %d uncleared holds", unclearedHolds)
+  }
+
+  if len(s.Grades) == 0{
+	return fmt.Errorf("student GPA is less than 2.0")
+  }
+
+  var sum float64  
+  for _, g := range s.Grades {
+	sum += g
+  }
+  gpa := sum/len(s.Grades)
+
+  if gpa >= 2.0 {
+    return nil
+  } else {
+    return fmt.Errorf("student GPA is less than 2.0")
+  }
+
+  return false 
+}
+</pre>
+
+<p>This function is quite short, but imagine if there were five or six more graduation requirements; it would quickly become hard to read. Furthermore, the logic of determining the intermediate values (such as GPA) is inline with the logic that <i>uses</i> the values to implement the process logic.</p>
+
+<p>You might be tempted to do this to help the next reader:</p>
+
+<pre>
+func eligibleForGraduation(s *Student) error {
+
+  // check if student has any holds on his account
+  var unclearedHolds int 
+  for _, hold := range s.Holds {
+    if hold.Status != cleared {
+      unclearedHolds++
+    }
+  }
+
+  if unclearedHolds > 0 {
+    return fmt.Errorf("student has %d uncleared holds", unclearedHolds)
+  }
+
+
+  // ensure GPA meets the minimum for graduation
+  if len(s.Grades) == 0{
+	return fmt.Errorf("student GPA is less than 2.0")
+  }
+
+  var sum float64  
+  for _, g := range s.Grades {
+	sum += g
+  }
+  gpa := sum/len(s.Grades)
+
+  if gpa >= 2.0 {
+    return nil
+  } else {
+    return fmt.Errorf("student GPA is less than 2.0")
+  }
+
+  return false 
+}
+</pre>
+
+<p>This helps, by separating chunks of code and explaining what they do so the reader doesn't have to review each loop, but it doesn't solve the problem of mixing process logic (is the student eligible to graduate?) and the logic to get the intermediate values.</p>
+
+
+<p>If we rewrite it like this instead, it is easier to understand exactly what the graduation requirements are:</p>
+
+<pre>
+func eligibleForGraduation(s *Student) error {
+
+  if unclearedHolds(s) > 0 {
+    return fmt.Errorf("student has %d uncleared holds", unclearedHolds)
+  }
+
+  if gpa(s) < 2.0 {
+    return fmt.Errorf("student GPA is less than 2.0")   			
+  }
+
+  return nil
+}
+</pre>
+
+<p>We can also now document the <code>code</code> func separately where it is defined, test it separately, and re-use it elsewhere, etc.</p>
+
+<h3>5. Zoom out</h3>
+<p>Often when we review a pull request, we're presented with a few changes in a few files, or maybe a function or a type is introduced and used. Without comments it can be very hard to understand <i>why</i> the code is written the way it is. Sure, if you read the code you can figure out what the new function does, but it doesn't tell you <i>why</i> we're doing it in the first place. </p>
+
+<p>Begin by commenting the new function and say what it does and why you had to create it. Then, put it in larger context (zoom out). If we have a function called <code>GetLastCustomerStatusChange</code>, in the pull request explain why we added that function ("Added GetLastCustomerStatusChange to determine if customer lifetime value needs to be updated"). This allows the pull request reviewer to weigh in: is that the best way to determine if the value must be recalculated? What other cases can occur? Do we have another, existing way to determine this?</p>
+
 </article>
+
 
 
 </main>
@@ -53,3 +240,4 @@ Blah Blah
 </footer>
 </body>
 </html>
+
